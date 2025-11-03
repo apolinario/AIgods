@@ -70,7 +70,9 @@ class AudioPlayer:
             if self.playback_queue:
                 audio_chunk = self.playback_queue.popleft()
                 try:
-                    self.stream.write(audio_chunk)
+                    # Use asyncio.to_thread to avoid blocking the event loop
+                    await asyncio.to_thread(self.stream.write, audio_chunk)
+                    logger.debug(f"Played chunk: {len(audio_chunk)} bytes")
                 except Exception as e:
                     logger.error(f"Error playing audio: {e}")
             else:
