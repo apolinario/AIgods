@@ -5,10 +5,6 @@ websockets
 pyaudio
 numpy
 
-# Pipecat serializer (lightweight - just for Protobuf frames)
-# We only need the serializer, not the full pipecat-ai
-pipecat-ai
-
 # GPIO for Raspberry Pi (phone interface)
 RPi.GPIO
 

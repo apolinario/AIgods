@@ -27,11 +27,11 @@ from typing import Optional
 import numpy as np
 import pyaudio
 import websockets
+from dotenv import load_dotenv
 from loguru import logger
 
-# Import Pipecat serializer for protocol compatibility
-from pipecat.serializers.protobuf import ProtobufFrameSerializer
-from pipecat.frames.frames import AudioRawFrame
+# Load environment variables from .env file
+load_dotenv()
 
 # GPIO imports
 try:
@@ -219,7 +219,6 @@ class PhoneVoiceBotClient:
         self.tone_gen = ToneGenerator()
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         self.is_running = False
-        self.serializer = ProtobufFrameSerializer()  # Match server protocol
 
         # Phone state
         self.phone_active = False
@@ -365,14 +364,8 @@ class PhoneVoiceBotClient:
                 audio_chunk = self.recorder.read_chunk()
 
                 if audio_chunk and self.websocket:
-                    # Create AudioRawFrame and serialize
-                    frame = AudioRawFrame(
-                        audio=audio_chunk,
-                        sample_rate=SAMPLE_RATE,
-                        num_channels=CHANNELS,
-                    )
-                    serialized = self.serializer.serialize(frame)
-                    await self.websocket.send(serialized)
+                    # Send raw audio bytes to server
+                    await self.websocket.send(audio_chunk)
 
                 await asyncio.sleep(0.001)
 
@@ -387,16 +380,12 @@ class PhoneVoiceBotClient:
         while self.is_running and self.conversation_active:
             try:
                 if self.websocket:
-                    # Receive serialized frame from server
-                    serialized_data = await self.websocket.recv()
+                    # Receive audio chunk from server
+                    audio_chunk = await self.websocket.recv()
 
-                    if isinstance(serialized_data, bytes):
-                        # Deserialize the frame
-                        frame = self.serializer.deserialize(serialized_data)
-
-                        # Extract audio from AudioRawFrame
-                        if isinstance(frame, AudioRawFrame):
-                            self.player.add_audio(frame.audio)
+                    if isinstance(audio_chunk, bytes):
+                        # Add to playback queue
+                        self.player.add_audio(audio_chunk)
 
             except websockets.exceptions.ConnectionClosed:
                 logger.info("Connection closed by server")
