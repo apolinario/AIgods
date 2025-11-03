@@ -156,7 +156,7 @@ class SmartTurnMetricsProcessor(FrameProcessor):
     """Processes and logs Smart Turn V3 metrics.
 
     This processor extracts timing and prediction data from Smart Turn
-    to monitor turn-taking performance.
+    to monitor turn-taking performance and sends them to the client.
     """
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
@@ -166,27 +166,32 @@ class SmartTurnMetricsProcessor(FrameProcessor):
         if isinstance(frame, MetricsFrame):
             for metrics in frame.data:
                 if isinstance(metrics, SmartTurnMetricsData):
-                    logger.info(
+                    log_text = (
                         f"Smart Turn: "
                         f"{'COMPLETE' if metrics.is_complete else 'INCOMPLETE'}, "
                         f"Probability: {metrics.probability:.2%}, "
-                        f"Inference: {metrics.inference_time_ms:.2f}ms, "
-                        f"Server: {metrics.server_total_time_ms:.2f}ms, "
                         f"E2E: {metrics.e2e_processing_time_ms:.2f}ms"
                     )
+                    logger.info(log_text)
+
+                    # Send to client as a custom log frame
+                    from pipecat.frames.frames import TextFrame
+                    log_frame = TextFrame(text=f"[SmartTurn] {log_text}")
+                    await self.push_frame(log_frame)
 
         await self.push_frame(frame, direction)
 
 
 class ConversationLogger(FrameProcessor):
-    """Logs conversation transcripts for debugging."""
+    """Logs conversation transcripts for debugging and sends to client."""
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
-        """Log transcript frames."""
+        """Log transcript frames and forward to client."""
         await super().process_frame(frame, direction)
 
         if isinstance(frame, TranscriptionFrame):
-            if frame.user_id == "user":
+            user_id = getattr(frame, "user_id", "")
+            if user_id == "user" or not user_id:
                 logger.info(f"User: {frame.text}")
             else:
                 logger.info(f"Bot: {frame.text}")

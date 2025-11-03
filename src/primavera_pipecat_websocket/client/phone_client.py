@@ -42,7 +42,8 @@ except ImportError:
     logger.warning("RPi.GPIO not available - running in test mode")
 
 # Audio configuration
-SAMPLE_RATE = 16000
+INPUT_SAMPLE_RATE = 16000   # 16kHz for microphone input
+OUTPUT_SAMPLE_RATE = 24000  # 24kHz for speaker output (matches VibeVoice)
 CHANNELS = 1
 CHUNK_SIZE = 1024
 FORMAT = pyaudio.paInt16
@@ -108,12 +109,12 @@ class AudioPlayer:
         self.stream = self.audio.open(
             format=FORMAT,
             channels=CHANNELS,
-            rate=SAMPLE_RATE,
+            rate=OUTPUT_SAMPLE_RATE,  # Use 24kHz for VibeVoice output
             output=True,
             output_device_index=self.device_index,
             frames_per_buffer=CHUNK_SIZE,
         )
-        logger.info(f"Audio playback initialized (device: {self.device_index})")
+        logger.info(f"Audio playback initialized at {OUTPUT_SAMPLE_RATE}Hz (device: {self.device_index})")
 
     def play_tone_loop(self, tone_data: np.ndarray):
         """Play a tone in a loop (for dial tone)."""
@@ -184,12 +185,12 @@ class AudioRecorder:
         self.stream = self.audio.open(
             format=FORMAT,
             channels=CHANNELS,
-            rate=SAMPLE_RATE,
+            rate=INPUT_SAMPLE_RATE,  # Use 16kHz for microphone input
             input=True,
             input_device_index=self.device_index,
             frames_per_buffer=CHUNK_SIZE,
         )
-        logger.info(f"Audio recording initialized (device: {self.device_index})")
+        logger.info(f"Audio recording initialized at {INPUT_SAMPLE_RATE}Hz (device: {self.device_index})")
 
     def read_chunk(self) -> bytes:
         """Read one chunk of audio data from microphone."""

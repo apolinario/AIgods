@@ -94,6 +94,7 @@ class VibeVoiceTTSService(TTSService):
                 current_event = None
                 data_buffer = ""
                 actual_sample_rate = self._sample_rate
+                chunk_count = 0
 
                 logger.debug("Processing VibeVoice SSE stream...")
 
@@ -129,10 +130,12 @@ class VibeVoiceTTSService(TTSService):
                                             sample_rate=actual_sample_rate,
                                             num_channels=1,
                                         )
+                                        chunk_count += 1
+                                        logger.debug(f"Yielding chunk #{chunk_count}: {len(audio_bytes)} bytes")
                                         yield frame
 
                                 elif current_event == "end":
-                                    logger.debug("VibeVoice stream completed")
+                                    logger.info(f"VibeVoice stream completed - total chunks: {chunk_count}")
                                     break
 
                                 elif current_event == "error":

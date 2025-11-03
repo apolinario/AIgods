@@ -12,6 +12,7 @@ All heavy processing (Whisper, Gemini, TTS, Smart Turn) happens on the server.
 
 import argparse
 import asyncio
+import json
 import os
 import struct
 import wave
@@ -160,12 +161,31 @@ class VoiceBotClient:
         while self.is_running:
             try:
                 if self.websocket:
-                    # Receive audio chunk from server
-                    audio_chunk = await self.websocket.recv()
+                    # Receive message from server
+                    message = await self.websocket.recv()
 
-                    if isinstance(audio_chunk, bytes):
-                        # Add to playback queue
-                        self.player.add_audio(audio_chunk)
+                    if isinstance(message, bytes):
+                        # Check message type by prefix
+                        if message.startswith(b"AUDIO:"):
+                            # Audio data
+                            audio_data = message[6:]  # Skip "AUDIO:" prefix
+                            logger.debug(f"Received audio chunk: {len(audio_data)} bytes")
+                            self.player.add_audio(audio_data)
+
+                        elif message.startswith(b"LOG:"):
+                            # Log message
+                            log_data = message[4:].decode("utf-8")
+                            log_msg = json.loads(log_data)
+
+                            if log_msg["type"] == "transcription":
+                                logger.info(f"📝 Transcription: {log_msg['text']}")
+                            elif log_msg["type"] == "text":
+                                logger.info(f"💬 Bot: {log_msg['text']}")
+
+                        else:
+                            # Fallback: treat as raw audio (backward compatibility)
+                            logger.debug(f"Received raw audio: {len(message)} bytes")
+                            self.player.add_audio(message)
 
             except websockets.exceptions.ConnectionClosed:
                 logger.info("Connection closed by server")

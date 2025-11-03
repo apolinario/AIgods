@@ -8,8 +8,16 @@ It wraps raw bytes in a minimal format that the WebSocket transport can process.
 import struct
 from typing import Any
 
+import json
 from loguru import logger
-from pipecat.frames.frames import AudioRawFrame, InputAudioRawFrame, OutputAudioRawFrame, Frame
+from pipecat.frames.frames import (
+    AudioRawFrame,
+    InputAudioRawFrame,
+    OutputAudioRawFrame,
+    Frame,
+    TextFrame,
+    TranscriptionFrame,
+)
 from pipecat.serializers.base_serializer import FrameSerializer, FrameSerializerType
 
 
@@ -18,9 +26,13 @@ class RawAudioSerializer(FrameSerializer):
 
     Protocol:
     - Client sends: raw audio bytes (16-bit PCM, 16kHz, mono)
-    - Server sends: raw audio bytes (same format)
+    - Server sends:
+        - Audio frames: raw audio bytes (16-bit PCM, 24kHz for VibeVoice)
+        - Text frames: JSON messages with logs/status (prefixed with 'TEXT:')
 
-    No complex framing needed - just raw audio in/out.
+    Messages are differentiated by prefix:
+    - Audio: starts with binary audio data
+    - Text/Logs: starts with 'TEXT:' followed by JSON
     """
 
     def __init__(self, sample_rate: int = 16000, num_channels: int = 1):
@@ -36,13 +48,32 @@ class RawAudioSerializer(FrameSerializer):
     async def serialize(self, frame: Frame) -> bytes | None:
         """Serialize frames to send to client.
 
-        Only OutputAudioRawFrame is serialized - everything else is ignored.
+        Serializes OutputAudioRawFrame as audio and TranscriptionFrame/TextFrame as JSON logs.
         """
         if isinstance(frame, OutputAudioRawFrame):
-            # Just return raw audio bytes
-            return frame.audio
+            # Return raw audio bytes prefixed with 'AUDIO:'
+            logger.debug(f"Serializing audio frame: {len(frame.audio)} bytes")
+            return b"AUDIO:" + frame.audio
 
-        # Ignore other frame types (client doesn't need them)
+        elif isinstance(frame, TranscriptionFrame):
+            # Send transcription as JSON log message
+            log_msg = {
+                "type": "transcription",
+                "text": frame.text,
+                "user_id": getattr(frame, "user_id", ""),
+                "timestamp": getattr(frame, "timestamp", ""),
+            }
+            return b"LOG:" + json.dumps(log_msg).encode("utf-8")
+
+        elif isinstance(frame, TextFrame):
+            # Send text frame as JSON log (for LLM responses)
+            log_msg = {
+                "type": "text",
+                "text": frame.text,
+            }
+            return b"LOG:" + json.dumps(log_msg).encode("utf-8")
+
+        # Ignore other frame types
         return None
 
     async def deserialize(self, data: bytes) -> Frame | None:
