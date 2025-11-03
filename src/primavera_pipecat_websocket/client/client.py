@@ -28,7 +28,8 @@ from loguru import logger
 load_dotenv()
 
 # Audio configuration
-SAMPLE_RATE = 16000  # 16kHz for voice
+INPUT_SAMPLE_RATE = 16000   # 16kHz for microphone input
+OUTPUT_SAMPLE_RATE = 24000  # 24kHz for speaker output (matches VibeVoice)
 CHANNELS = 1  # Mono
 CHUNK_SIZE = 1024  # Samples per chunk
 FORMAT = pyaudio.paInt16  # 16-bit audio
@@ -49,11 +50,11 @@ class AudioPlayer:
         self.stream = self.audio.open(
             format=FORMAT,
             channels=CHANNELS,
-            rate=SAMPLE_RATE,
+            rate=OUTPUT_SAMPLE_RATE,  # Use 24kHz for VibeVoice output
             output=True,
             frames_per_buffer=CHUNK_SIZE,
         )
-        logger.info("Audio playback initialized")
+        logger.info(f"Audio playback initialized at {OUTPUT_SAMPLE_RATE}Hz")
 
     def add_audio(self, audio_data: bytes):
         """Add audio data to playback queue."""
@@ -98,11 +99,11 @@ class AudioRecorder:
         self.stream = self.audio.open(
             format=FORMAT,
             channels=CHANNELS,
-            rate=SAMPLE_RATE,
+            rate=INPUT_SAMPLE_RATE,  # Use 16kHz for microphone input
             input=True,
             frames_per_buffer=CHUNK_SIZE,
         )
-        logger.info("Audio recording initialized")
+        logger.info(f"Audio recording initialized at {INPUT_SAMPLE_RATE}Hz")
 
     def read_chunk(self) -> bytes:
         """Read one chunk of audio data from microphone."""

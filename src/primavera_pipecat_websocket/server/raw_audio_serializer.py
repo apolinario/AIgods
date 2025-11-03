@@ -9,8 +9,8 @@ import struct
 from typing import Any
 
 from loguru import logger
-from pipecat.frames.frames import AudioRawFrame, Frame
-from pipecat.serializers.base_serializer import FrameSerializer
+from pipecat.frames.frames import AudioRawFrame, InputAudioRawFrame, OutputAudioRawFrame, Frame
+from pipecat.serializers.base_serializer import FrameSerializer, FrameSerializerType
 
 
 class RawAudioSerializer(FrameSerializer):
@@ -28,12 +28,17 @@ class RawAudioSerializer(FrameSerializer):
         self._num_channels = num_channels
         logger.info(f"RawAudioSerializer initialized: {sample_rate}Hz, {num_channels} channel(s)")
 
+    @property
+    def type(self) -> FrameSerializerType:
+        """Return serializer type (binary for raw audio bytes)."""
+        return FrameSerializerType.BINARY
+
     async def serialize(self, frame: Frame) -> bytes | None:
         """Serialize frames to send to client.
 
-        Only AudioRawFrame is serialized - everything else is ignored.
+        Only OutputAudioRawFrame is serialized - everything else is ignored.
         """
-        if isinstance(frame, AudioRawFrame):
+        if isinstance(frame, OutputAudioRawFrame):
             # Just return raw audio bytes
             return frame.audio
 
@@ -48,8 +53,8 @@ class RawAudioSerializer(FrameSerializer):
         if not data:
             return None
 
-        # Wrap raw bytes in AudioRawFrame
-        return AudioRawFrame(
+        # Wrap raw bytes in InputAudioRawFrame (for incoming audio from client)
+        return InputAudioRawFrame(
             audio=data,
             sample_rate=self._sample_rate,
             num_channels=self._num_channels,

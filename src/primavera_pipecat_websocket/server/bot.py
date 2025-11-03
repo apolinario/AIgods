@@ -122,7 +122,10 @@ class GeminiProcessor(FrameProcessor):
         await super().process_frame(frame, direction)
 
         # Handle user transcripts
-        if isinstance(frame, TranscriptionFrame) and frame.user_id == "user":
+        if isinstance(frame, TranscriptionFrame):
+            logger.debug(f"GeminiProcessor received TranscriptionFrame: text='{frame.text}', user_id='{getattr(frame, 'user_id', 'N/A')}'")
+
+            # Check if it's a user transcript (not from bot)
             if frame.text.strip():
                 logger.info(f"User transcript: {frame.text}")
 

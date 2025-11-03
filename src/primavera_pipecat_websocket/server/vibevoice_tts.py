@@ -14,7 +14,7 @@ from typing import AsyncGenerator
 import numpy as np
 from loguru import logger
 from openai import OpenAI
-from pipecat.frames.frames import AudioRawFrame, ErrorFrame, Frame
+from pipecat.frames.frames import OutputAudioRawFrame, ErrorFrame, Frame
 from pipecat.services.tts_service import TTSService
 
 
@@ -123,8 +123,8 @@ class VibeVoiceTTSService(TTSService):
                                             audio_bytes, dtype=np.int16
                                         )
 
-                                        # Create AudioRawFrame for Pipecat
-                                        frame = AudioRawFrame(
+                                        # Create OutputAudioRawFrame for Pipecat
+                                        frame = OutputAudioRawFrame(
                                             audio=audio_np.tobytes(),
                                             sample_rate=actual_sample_rate,
                                             num_channels=1,
