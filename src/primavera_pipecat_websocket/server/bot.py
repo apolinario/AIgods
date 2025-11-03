@@ -211,11 +211,8 @@ async def run_bot(websocket_transport: FastAPIWebsocketTransport):
     )
     logger.info(f"Gemini cache initialized: {conversation_manager.cache_name}")
 
-    # Initialize local Whisper STT
-    whisper_model = os.getenv("WHISPER_MODEL", "base")  # Options: tiny, base, small, medium, large
-    logger.info(f"Initializing local Whisper with model: {whisper_model}")
-
-    stt = WhisperSTTService(model=whisper_model)
+    # Use pre-loaded Whisper STT service
+    stt = get_whisper_service()
 
     # Initialize VibeVoice TTS (uses environment variables)
     tts = create_vibevoice_service()
@@ -249,18 +246,15 @@ async def run_bot(websocket_transport: FastAPIWebsocketTransport):
         ),
     )
 
-    # Event handlers
-    @websocket_transport.event_handler("on_client_connected")
-    async def on_client_connected(transport, client):
-        logger.info(f"Client connected: {client}")
-        await task.queue_frames([StartFrame()])
-
+    # Event handler for client disconnection
     @websocket_transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info(f"Client disconnected: {client}")
-        await task.queue_frames([EndFrame()])
+        # Cancel the task to stop the runner
+        await task.cancel()
 
     # Run the pipeline
+    # The transport will automatically handle StartFrame when client connects
     runner = PipelineRunner()
     await runner.run(task)
 
@@ -289,6 +283,20 @@ async def create_bot_instance(websocket):
     )
 
     return transport
+
+
+# Pre-load Whisper model at module import time to avoid delays on first connection
+_whisper_service = None
+
+def get_whisper_service():
+    """Get or create the shared Whisper service instance."""
+    global _whisper_service
+    if _whisper_service is None:
+        whisper_model = os.getenv("WHISPER_MODEL", "base")
+        logger.info(f"Pre-loading Whisper model: {whisper_model}")
+        _whisper_service = WhisperSTTService(model=whisper_model)
+        logger.info("Whisper model loaded and ready")
+    return _whisper_service
 
 
 if __name__ == "__main__":

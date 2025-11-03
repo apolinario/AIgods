@@ -29,6 +29,13 @@ active_bots: Dict[str, asyncio.Task] = {}
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown tasks."""
     logger.info("Server starting up...")
+
+    # Pre-load Whisper model during startup to avoid client timeouts
+    from bot import get_whisper_service
+    logger.info("Pre-loading Whisper model...")
+    get_whisper_service()
+    logger.info("Whisper model ready!")
+
     yield
     logger.info("Server shutting down...")
 
