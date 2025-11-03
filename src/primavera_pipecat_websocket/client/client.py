@@ -38,78 +38,68 @@ BYTES_PER_SAMPLE = 2
 
 
 class AudioPlayer:
-    """Handles audio playback through speakers."""
+    """Handles audio playback through speakers using blocking writes."""
 
     def __init__(self):
         self.audio = pyaudio.PyAudio()
         self.stream: Optional[pyaudio.Stream] = None
-        self.playback_queue = deque()
+        self.playback_queue = asyncio.Queue()
         self.is_playing = False
-        self._callback_data = b""
-        self._min_buffer_chunks = 3  # Minimum chunks in queue before starting playback
-        self._playback_started = False
-
-    def _callback(self, in_data, frame_count, time_info, status):
-        """PyAudio callback for continuous playback."""
-        bytes_needed = frame_count * CHANNELS * BYTES_PER_SAMPLE
-
-        # Wait for minimum buffer before starting playback
-        if not self._playback_started:
-            if len(self.playback_queue) >= self._min_buffer_chunks:
-                self._playback_started = True
-                logger.info(f"🔊 Starting playback with {len(self.playback_queue)} chunks buffered")
-            else:
-                # Not ready yet - return silence
-                return (b'\x00' * bytes_needed, pyaudio.paContinue)
-
-        # Get audio from queue
-        initial_buffer = len(self._callback_data)
-        while len(self._callback_data) < bytes_needed and self.playback_queue:
-            chunk = self.playback_queue.popleft()
-            self._callback_data += chunk
-
-        # Extract what we need
-        if len(self._callback_data) >= bytes_needed:
-            output = self._callback_data[:bytes_needed]
-            self._callback_data = self._callback_data[bytes_needed:]
-        else:
-            # Not enough data - pad with silence
-            silence_bytes = bytes_needed - len(self._callback_data)
-            output = self._callback_data + (b'\x00' * silence_bytes)
-            self._callback_data = b""
-            # Reset playback started if we run out of data
-            if len(self.playback_queue) == 0:
-                self._playback_started = False
-                logger.warning(f"⚠️ UNDERRUN: Needed {bytes_needed} bytes, had {initial_buffer}, padded {silence_bytes} silence. Queue: {len(self.playback_queue)}")
-
-        return (output, pyaudio.paContinue)
 
     def start(self):
-        """Initialize audio output stream with callback for smooth playback."""
+        """Initialize audio output stream in blocking mode."""
         self.stream = self.audio.open(
             format=FORMAT,
             channels=CHANNELS,
-            rate=OUTPUT_SAMPLE_RATE,  # Use 24kHz for VibeVoice output
+            rate=OUTPUT_SAMPLE_RATE,
             output=True,
-            frames_per_buffer=512,  # Smaller buffer for lower latency
-            stream_callback=self._callback,  # Use callback mode for proper timing
+            # No frames_per_buffer - let PyAudio use optimal default size
         )
-        self.stream.start_stream()
-        logger.info(f"Audio playback initialized at {OUTPUT_SAMPLE_RATE}Hz with callback (512 frame buffer)")
+        logger.info(f"Audio playback initialized at {OUTPUT_SAMPLE_RATE}Hz (blocking mode with auto-pacing)")
 
     def add_audio(self, audio_data: bytes):
         """Add audio data to playback queue."""
-        logger.debug(f"📦 Queued chunk: {len(audio_data)} bytes, queue size now: {len(self.playback_queue)}")
-        self.playback_queue.append(audio_data)
+        self.playback_queue.put_nowait(audio_data)
 
     async def play_loop(self):
-        """Keep alive while playing (callback handles actual playback)."""
+        """Continuously play audio from queue using blocking writes."""
         self.is_playing = True
-        logger.info("Audio playback active (callback-driven)")
+        logger.info("Audio playback loop started")
+        chunks_played = 0
+        buffering = True
+        min_buffer = 5  # Wait for 5 chunks before starting
 
-        # Just keep the coroutine alive - callback handles playback
         while self.is_playing:
-            await asyncio.sleep(0.1)
+            try:
+                # Initial buffering - wait for minimum chunks
+                if buffering:
+                    if self.playback_queue.qsize() >= min_buffer:
+                        logger.info(f"🔊 Buffer ready with {self.playback_queue.qsize()} chunks, starting playback")
+                        buffering = False
+                    else:
+                        await asyncio.sleep(0.05)  # Wait a bit for more chunks
+                        continue
+
+                # Wait for audio with timeout
+                audio_chunk = await asyncio.wait_for(self.playback_queue.get(), timeout=0.1)
+
+                chunks_played += 1
+                logger.info(f"▶️ Playing chunk #{chunks_played}: {len(audio_chunk)} bytes")
+
+                # Write to PyAudio stream - blocks until buffer has space
+                # This naturally paces playback without manual sleep
+                await asyncio.to_thread(self.stream.write, audio_chunk)
+
+                logger.debug(f"✅ Chunk #{chunks_played} written and playing")
+
+            except asyncio.TimeoutError:
+                # No audio available, continue waiting
+                continue
+            except Exception as e:
+                logger.error(f"❌ Error playing chunk #{chunks_played}: {e}")
+                continue  # Don't break, keep trying
+
+        logger.info(f"Audio playback loop ended (played {chunks_played} total chunks)")
 
     def stop(self):
         """Stop audio playback and cleanup."""

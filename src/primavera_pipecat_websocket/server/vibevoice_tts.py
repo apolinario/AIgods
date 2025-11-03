@@ -147,9 +147,6 @@ class VibeVoiceTTSService(TTSService):
                         if iteration_count == 1:
                             logger.info(f"🔥 FIRST SSE line received at {time_module.time():.3f}")
 
-                        # Yield control to event loop so push_frame can execute immediately
-                        await asyncio.sleep(0)
-
                         if not line:  # Empty line separates events
                             if current_event and data_buffer:
                                 # Process the complete event
@@ -186,6 +183,9 @@ class VibeVoiceTTSService(TTSService):
 
                                             # DIRECT PUSH - bypass generator buffering
                                             await self.push_frame(frame)
+
+                                            # Yield control after pushing so frame flows through pipeline
+                                            await asyncio.sleep(0)
 
                                     elif current_event == "end":
                                         logger.info(f"🎵 VibeVoice stream COMPLETED - total chunks: {chunk_count}")
