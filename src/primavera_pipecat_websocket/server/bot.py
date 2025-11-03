@@ -14,13 +14,17 @@ import os
 import sys
 from typing import Optional
 
+# Load environment variables FIRST before any other imports
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 # Add parent directory to path to import shared modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
-from dotenv import load_dotenv
 from loguru import logger
 
 # Import shared modules from parent src directory
+# These need GOOGLE_API_KEY to be set, so import after load_dotenv
 from config_loader import ConfigLoader
 from conversation_manager import GeminiConversationManager
 from gemini_cache import get_gemini_cache
@@ -30,14 +34,12 @@ from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
+    CancelFrame,
     EndFrame,
     Frame,
-    LLMFullResponseEndFrame,
     MetricsFrame,
     StartFrame,
     StartInterruptionFrame,
-    StopInterruptionFrame,
-    SystemFrame,
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
@@ -48,13 +50,14 @@ from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.whisper.stt import WhisperSTTService
+from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from vibevoice_tts import create_vibevoice_service
-from pipecat.transports.network.fastapi_websocket import (
+from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
 )
 
-load_dotenv(override=True)
+# Environment already loaded at top of file
 
 logger.remove()
 logger.add(sys.stderr, level="DEBUG")
@@ -97,10 +100,8 @@ class InterruptionHandler(FrameProcessor):
         elif isinstance(frame, UserStoppedSpeakingFrame):
             self._user_is_speaking = False
             logger.debug("User stopped speaking")
-
-            # End interruption when user stops
-            if self._bot_is_speaking:
-                await self.push_frame(StopInterruptionFrame())
+            # StopInterruptionFrame was removed from Pipecat
+            # UserStoppedSpeakingFrame is sufficient
 
         await self.push_frame(frame, direction)
 
@@ -278,10 +279,10 @@ async def create_bot_instance(websocket):
             audio_out_enabled=True,
             add_wav_header=False,  # Raw audio for efficiency
             vad_analyzer=SileroVADAnalyzer(
-                params=VADParams(stop_secs=0.3)
+                params=VADParams(stop_secs=0.2)  # Optimal for Smart Turn V3
             ),
             turn_analyzer=LocalSmartTurnAnalyzerV3(),
-            serializer="protobuf",  # Efficient binary serialization
+            serializer=ProtobufFrameSerializer(),  # Efficient binary serialization
         ),
     )
 

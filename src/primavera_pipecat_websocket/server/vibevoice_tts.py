@@ -15,7 +15,7 @@ import numpy as np
 from loguru import logger
 from openai import OpenAI
 from pipecat.frames.frames import AudioRawFrame, ErrorFrame, Frame
-from pipecat.services.ai_services import TTSService
+from pipecat.services.tts_service import TTSService
 
 
 class VibeVoiceTTSService(TTSService):
