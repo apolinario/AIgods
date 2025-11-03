@@ -196,20 +196,22 @@ if __name__ == "__main__":
     # Run the server
     import uvicorn
     import sys
+    import signal
+    import os as os_module
+
+    # Force immediate exit on Ctrl+C
+    def force_exit(signum, frame):
+        logger.info("Ctrl+C pressed - forcing immediate shutdown")
+        os_module._exit(0)
+
+    signal.signal(signal.SIGINT, force_exit)
 
     logger.info(f"Starting server on {args.host}:{args.port}")
 
-    try:
-        config = uvicorn.Config(
-            "server:app",
-            host=args.host,
-            port=args.port,
-            reload=args.reload,
-            log_level="info",
-            timeout_graceful_shutdown=1,  # Only wait 1 second for graceful shutdown
-        )
-        server = uvicorn.Server(config)
-        server.run()
-    except KeyboardInterrupt:
-        logger.info("Server stopped by user")
-        sys.exit(0)
+    uvicorn.run(
+        "server:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_level="info",
+    )

@@ -185,7 +185,8 @@ class VoiceBotClient:
                         if message.startswith(b"AUDIO:"):
                             # Audio data
                             audio_data = message[6:]  # Skip "AUDIO:" prefix
-                            logger.debug(f"Received audio chunk: {len(audio_data)} bytes")
+                            import time
+                            logger.info(f"🔊 CLIENT RECEIVED audio chunk at {time.time():.3f}: {len(audio_data)} bytes")
                             self.player.add_audio(audio_data)
 
                         elif message.startswith(b"LOG:"):
