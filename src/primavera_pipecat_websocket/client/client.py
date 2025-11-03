@@ -148,6 +148,7 @@ class VoiceBotClient:
         self.player = AudioPlayer()
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         self.is_running = False
+        self.bot_is_speaking = False  # Track when bot is speaking to mute mic
 
     async def send_audio(self):
         """Continuously capture and send audio to server."""
@@ -269,7 +270,8 @@ async def main():
 
     logger.info("=== Raspberry Pi Voice Bot Client ===")
     logger.info(f"Server: {args.server}")
-    logger.info(f"Sample Rate: {SAMPLE_RATE}Hz")
+    logger.info(f"Input Sample Rate: {INPUT_SAMPLE_RATE}Hz")
+    logger.info(f"Output Sample Rate: {OUTPUT_SAMPLE_RATE}Hz")
     logger.info(f"Channels: {CHANNELS} (Mono)")
     logger.info(f"Chunk Size: {CHUNK_SIZE} samples")
     logger.info("=====================================")

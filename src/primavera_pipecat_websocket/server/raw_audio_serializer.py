@@ -14,6 +14,7 @@ from pipecat.frames.frames import (
     AudioRawFrame,
     InputAudioRawFrame,
     OutputAudioRawFrame,
+    TTSAudioRawFrame,
     Frame,
     TextFrame,
     TranscriptionFrame,
@@ -52,7 +53,7 @@ class RawAudioSerializer(FrameSerializer):
         """
         if isinstance(frame, OutputAudioRawFrame):
             # Return raw audio bytes prefixed with 'AUDIO:'
-            logger.debug(f"Serializing audio frame: {len(frame.audio)} bytes")
+            logger.info(f"🔊 Sending audio chunk to client: {len(frame.audio)} bytes at {frame.sample_rate}Hz")
             return b"AUDIO:" + frame.audio
 
         elif isinstance(frame, TranscriptionFrame):

@@ -195,13 +195,21 @@ if __name__ == "__main__":
 
     # Run the server
     import uvicorn
+    import sys
 
     logger.info(f"Starting server on {args.host}:{args.port}")
 
-    uvicorn.run(
-        "server:app",
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-        log_level="info",
-    )
+    try:
+        config = uvicorn.Config(
+            "server:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+            log_level="info",
+            timeout_graceful_shutdown=1,  # Only wait 1 second for graceful shutdown
+        )
+        server = uvicorn.Server(config)
+        server.run()
+    except KeyboardInterrupt:
+        logger.info("Server stopped by user")
+        sys.exit(0)

@@ -9,13 +9,42 @@ import asyncio
 import base64
 import json
 import os
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 import numpy as np
 from loguru import logger
 from openai import OpenAI
 from pipecat.frames.frames import OutputAudioRawFrame, ErrorFrame, Frame
 from pipecat.services.tts_service import TTSService
+from pipecat.utils.text.base_text_aggregator import BaseTextAggregator
+
+
+class NoAggregationTextAggregator(BaseTextAggregator):
+    """Text aggregator that doesn't split on sentence boundaries.
+
+    Used when we want to send complete responses to TTS without splitting.
+    """
+
+    def __init__(self):
+        self._text = ""
+
+    @property
+    def text(self) -> str:
+        return self._text
+
+    async def aggregate(self, text: str) -> Optional[str]:
+        """Accumulate all text and return it only when explicitly asked."""
+        self._text += text
+        # Never auto-split - return None to keep accumulating
+        return None
+
+    async def handle_interruption(self):
+        """Clear buffer on interruption."""
+        self._text = ""
+
+    async def reset(self):
+        """Clear the buffer."""
+        self._text = ""
 
 
 class VibeVoiceTTSService(TTSService):
@@ -48,7 +77,13 @@ class VibeVoiceTTSService(TTSService):
             cfg_scale: Classifier-free guidance scale (default: 1.5)
             sample_rate: Audio sample rate (default: 24000)
         """
-        super().__init__(**kwargs)
+        # Use custom aggregator that doesn't split on sentence boundaries
+        # We get complete responses from Gemini, so we want to send the full text
+        super().__init__(
+            aggregate_sentences=False,
+            text_aggregator=NoAggregationTextAggregator(),
+            **kwargs
+        )
 
         self._base_url = base_url
         self._model = model
@@ -74,7 +109,7 @@ class VibeVoiceTTSService(TTSService):
             AudioRawFrame: Frames containing PCM audio data
             ErrorFrame: If an error occurs during TTS
         """
-        logger.debug(f"VibeVoice TTS request: {text[:100]}...")
+        logger.info(f"🎵 VibeVoice TTS request: {text[:100]}... (total length: {len(text)} chars)")
 
         try:
             # Call VibeVoice API with streaming enabled
@@ -131,11 +166,11 @@ class VibeVoiceTTSService(TTSService):
                                             num_channels=1,
                                         )
                                         chunk_count += 1
-                                        logger.debug(f"Yielding chunk #{chunk_count}: {len(audio_bytes)} bytes")
+                                        logger.info(f"🎵 Yielding TTS chunk #{chunk_count}: {len(audio_bytes)} bytes")
                                         yield frame
 
                                 elif current_event == "end":
-                                    logger.info(f"VibeVoice stream completed - total chunks: {chunk_count}")
+                                    logger.info(f"🎵 VibeVoice stream COMPLETED - total chunks: {chunk_count}")
                                     break
 
                                 elif current_event == "error":
