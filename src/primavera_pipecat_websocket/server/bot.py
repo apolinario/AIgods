@@ -49,6 +49,7 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.services.whisper.stt import WhisperSTTService
 from vibevoice_tts import create_vibevoice_service
 from pipecat.transports.websocket.fastapi import (
@@ -277,7 +278,7 @@ async def create_bot_instance(websocket):
                 params=VADParams(stop_secs=0.2)  # Optimal for Smart Turn V3
             ),
             turn_analyzer=LocalSmartTurnAnalyzerV3(),
-            # No serializer - WebSocket transport handles raw audio bytes
+            serializer=ProtobufFrameSerializer(),  # Required for Pipecat clients
         ),
     )
 
