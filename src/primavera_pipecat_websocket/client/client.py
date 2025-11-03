@@ -45,39 +45,52 @@ class AudioPlayer:
         self.stream: Optional[pyaudio.Stream] = None
         self.playback_queue = deque()
         self.is_playing = False
+        self._callback_data = b""
+
+    def _callback(self, in_data, frame_count, time_info, status):
+        """PyAudio callback for continuous playback."""
+        bytes_needed = frame_count * CHANNELS * BYTES_PER_SAMPLE
+
+        # Get audio from queue
+        while len(self._callback_data) < bytes_needed and self.playback_queue:
+            self._callback_data += self.playback_queue.popleft()
+
+        # Extract what we need
+        if len(self._callback_data) >= bytes_needed:
+            output = self._callback_data[:bytes_needed]
+            self._callback_data = self._callback_data[bytes_needed:]
+        else:
+            # Not enough data - pad with silence
+            output = self._callback_data + (b'\x00' * (bytes_needed - len(self._callback_data)))
+            self._callback_data = b""
+
+        return (output, pyaudio.paContinue)
 
     def start(self):
-        """Initialize audio output stream."""
+        """Initialize audio output stream with callback for smooth playback."""
         self.stream = self.audio.open(
             format=FORMAT,
             channels=CHANNELS,
             rate=OUTPUT_SAMPLE_RATE,  # Use 24kHz for VibeVoice output
             output=True,
-            frames_per_buffer=CHUNK_SIZE,
+            frames_per_buffer=1024,
+            stream_callback=self._callback,  # Use callback mode for proper timing
         )
-        logger.info(f"Audio playback initialized at {OUTPUT_SAMPLE_RATE}Hz")
+        self.stream.start_stream()
+        logger.info(f"Audio playback initialized at {OUTPUT_SAMPLE_RATE}Hz with callback")
 
     def add_audio(self, audio_data: bytes):
         """Add audio data to playback queue."""
         self.playback_queue.append(audio_data)
 
     async def play_loop(self):
-        """Continuously play audio from queue."""
+        """Keep alive while playing (callback handles actual playback)."""
         self.is_playing = True
-        logger.info("Audio playback loop started")
+        logger.info("Audio playback active (callback-driven)")
 
+        # Just keep the coroutine alive - callback handles playback
         while self.is_playing:
-            if self.playback_queue:
-                audio_chunk = self.playback_queue.popleft()
-                try:
-                    # Use asyncio.to_thread to avoid blocking the event loop
-                    await asyncio.to_thread(self.stream.write, audio_chunk)
-                    logger.debug(f"Played chunk: {len(audio_chunk)} bytes")
-                except Exception as e:
-                    logger.error(f"Error playing audio: {e}")
-            else:
-                # Small delay to prevent busy waiting
-                await asyncio.sleep(0.01)
+            await asyncio.sleep(0.1)
 
     def stop(self):
         """Stop audio playback and cleanup."""

@@ -66,14 +66,18 @@ class RawAudioSerializer(FrameSerializer):
             return b"LOG:" + json.dumps(log_msg).encode("utf-8")
 
         elif isinstance(frame, TextFrame):
-            # Send text frame as JSON log (for LLM responses)
+            # Send text frame as JSON log (for LLM responses and Smart Turn)
             log_msg = {
                 "type": "text",
                 "text": frame.text,
             }
+            logger.debug(f"Serializing text frame: {frame.text[:50]}...")
             return b"LOG:" + json.dumps(log_msg).encode("utf-8")
 
-        # Ignore other frame types
+        # Log ignored frame types for debugging
+        if frame.__class__.__name__ not in ["StartFrame", "EndFrame", "CancelFrame", "SystemFrame"]:
+            logger.debug(f"Ignoring frame type: {frame.__class__.__name__}")
+
         return None
 
     async def deserialize(self, data: bytes) -> Frame | None:
