@@ -1,0 +1,24 @@
+# Pipecat AI Framework with required services
+pipecat-ai[silero,local-smart-turn-v3,websocket,whisper]
+
+# Google Generative AI for Gemini with caching
+google-generativeai
+
+# OpenAI client (for VibeVoice TTS compatibility)
+openai
+
+# NumPy for audio processing
+numpy
+
+# Web server
+fastapi
+uvicorn[standard]
+websockets
+
+# Utilities
+python-dotenv
+loguru
+aiohttp
+
+# For protobuf serialization (efficient binary format)
+protobuf

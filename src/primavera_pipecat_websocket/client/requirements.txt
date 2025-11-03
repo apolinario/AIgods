@@ -1,0 +1,15 @@
+# WebSocket client
+websockets
+
+# Audio I/O
+pyaudio
+numpy
+
+# GPIO for Raspberry Pi (phone interface)
+RPi.GPIO
+
+# Logging
+loguru
+
+# Environment variables
+python-dotenv
