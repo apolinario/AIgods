@@ -41,6 +41,7 @@ from pipecat.frames.frames import (
     StartFrame,
     StartInterruptionFrame,
     TranscriptionFrame,
+    TTSAudioRawFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
@@ -225,6 +226,40 @@ class VADDebugLogger(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
+class EarlyBotSpeakingProcessor(FrameProcessor):
+    """Sends BotStartedSpeakingFrame immediately when TTS starts generating.
+
+    This bypasses Pipecat's default behavior of waiting for the audio queue
+    to be processed before signaling bot speech, enabling true streaming.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._sent_speaking_frame = False
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        """Intercept first TTS audio frame and signal bot speech immediately."""
+        await super().process_frame(frame, direction)
+
+        # Log ALL frames to see what's being processed
+        import time
+        if isinstance(frame, TTSAudioRawFrame):
+            logger.info(f"🎯 EarlyBotSpeaking received TTSAudioRawFrame at {time.time():.3f}")
+
+        # On first TTSAudioRawFrame, immediately send BotStartedSpeaking
+        if isinstance(frame, TTSAudioRawFrame) and not self._sent_speaking_frame:
+            logger.info("🎯 First TTS frame - sending BotStartedSpeaking immediately for streaming")
+            await self.push_frame(BotStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+            self._sent_speaking_frame = True
+
+        # Reset on interruption or stop
+        elif isinstance(frame, (StartInterruptionFrame, BotStoppedSpeakingFrame)):
+            self._sent_speaking_frame = False
+
+        # Always pass frame through
+        await self.push_frame(frame, direction)
+
+
 async def run_bot(websocket_transport: FastAPIWebsocketTransport):
     """Main bot pipeline setup and execution.
 
@@ -270,6 +305,7 @@ async def run_bot(websocket_transport: FastAPIWebsocketTransport):
     smart_turn_metrics = SmartTurnMetricsProcessor()
     conversation_logger = ConversationLogger()
     vad_debug_logger = VADDebugLogger()
+    early_bot_speaking = EarlyBotSpeakingProcessor()
 
     # Build the pipeline
     pipeline = Pipeline(
@@ -280,6 +316,7 @@ async def run_bot(websocket_transport: FastAPIWebsocketTransport):
             stt,  # Whisper STT
             gemini_processor,  # Gemini with cache and personality
             tts,  # VibeVoice TTS
+            early_bot_speaking,  # Signal bot speaking immediately for streaming
             interruption_handler,  # Handle interruptions
             smart_turn_metrics,  # Log Smart Turn metrics
             websocket_transport.output(),  # Audio back to Raspberry Pi

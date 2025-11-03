@@ -79,9 +79,11 @@ class VibeVoiceTTSService(TTSService):
         """
         # Use custom aggregator that doesn't split on sentence boundaries
         # We get complete responses from Gemini, so we want to send the full text
+        # DON'T pause frame processing - we want streaming audio
         super().__init__(
             aggregate_sentences=False,
             text_aggregator=NoAggregationTextAggregator(),
+            pause_frame_processing=False,  # Critical: allow frames to flow immediately
             **kwargs
         )
 
@@ -109,97 +111,121 @@ class VibeVoiceTTSService(TTSService):
             AudioRawFrame: Frames containing PCM audio data
             ErrorFrame: If an error occurs during TTS
         """
-        logger.info(f"🎵 VibeVoice TTS request: {text[:100]}... (total length: {len(text)} chars)")
+        import time as time_module
+        request_start = time_module.time()
+        logger.info(f"🎵 VibeVoice TTS request at {request_start:.3f}: {text[:100]}... (total length: {len(text)} chars)")
 
-        try:
-            # Call VibeVoice API with streaming enabled
-            with self._client.audio.speech.with_streaming_response.create(
-                model=self._model,
-                voice="ignored_when_voice_path",  # Voice path used instead
-                input=text,
-                response_format="pcm",
-                extra_body={
-                    "voice_path": self._voice_path,
-                    "stream_format": "sse",
-                    "ddpm_steps": self._ddpm_steps,
-                    "cfg_scale": self._cfg_scale,
-                },
-            ) as stream:
-                # Parse SSE (Server-Sent Events) stream
-                current_event = None
-                data_buffer = ""
-                actual_sample_rate = self._sample_rate
-                chunk_count = 0
+        # Create task to stream audio and push directly
+        async def stream_and_push():
+            try:
+                # Call VibeVoice API with streaming enabled
+                logger.info(f"🔥 Making HTTP request to VibeVoice...")
+                with self._client.audio.speech.with_streaming_response.create(
+                    model=self._model,
+                    voice="ignored_when_voice_path",  # Voice path used instead
+                    input=text,
+                    response_format="pcm",
+                    extra_body={
+                        "voice_path": self._voice_path,
+                        "stream_format": "sse",
+                        "ddpm_steps": self._ddpm_steps,
+                        "cfg_scale": self._cfg_scale,
+                    },
+                ) as stream:
+                    logger.info(f"🔥 HTTP stream opened at {time_module.time():.3f}, starting to iterate...")
+                    # Parse SSE (Server-Sent Events) stream
+                    current_event = None
+                    data_buffer = ""
+                    actual_sample_rate = self._sample_rate
+                    chunk_count = 0
 
-                logger.debug("Processing VibeVoice SSE stream...")
+                    logger.debug("Processing VibeVoice SSE stream...")
+                    iteration_count = 0
 
-                for line in stream.iter_lines():
-                    if not line:  # Empty line separates events
-                        if current_event and data_buffer:
-                            # Process the complete event
-                            try:
-                                if current_event == "start":
-                                    # Extract actual sample rate from server
-                                    meta = json.loads(data_buffer)
-                                    actual_sample_rate = int(
-                                        meta.get("sample_rate", self._sample_rate)
-                                    )
-                                    logger.info(
-                                        f"VibeVoice stream started: {actual_sample_rate}Hz"
-                                    )
+                    for line in stream.iter_lines():
+                        iteration_count += 1
+                        if iteration_count == 1:
+                            logger.info(f"🔥 FIRST SSE line received at {time_module.time():.3f}")
 
-                                elif current_event == "chunk":
-                                    # Decode and yield audio chunk
-                                    payload = json.loads(data_buffer)
-                                    audio_b64 = payload.get("data")
+                        # Yield control to event loop so push_frame can execute immediately
+                        await asyncio.sleep(0)
 
-                                    if audio_b64:
-                                        audio_bytes = base64.b64decode(audio_b64)
-                                        audio_np = np.frombuffer(
-                                            audio_bytes, dtype=np.int16
+                        if not line:  # Empty line separates events
+                            if current_event and data_buffer:
+                                # Process the complete event
+                                try:
+                                    if current_event == "start":
+                                        # Extract actual sample rate from server
+                                        meta = json.loads(data_buffer)
+                                        actual_sample_rate = int(
+                                            meta.get("sample_rate", self._sample_rate)
+                                        )
+                                        logger.info(
+                                            f"VibeVoice stream started: {actual_sample_rate}Hz"
                                         )
 
-                                        # Create OutputAudioRawFrame for Pipecat
-                                        frame = OutputAudioRawFrame(
-                                            audio=audio_np.tobytes(),
-                                            sample_rate=actual_sample_rate,
-                                            num_channels=1,
-                                        )
-                                        chunk_count += 1
-                                        logger.info(f"🎵 Yielding TTS chunk #{chunk_count}: {len(audio_bytes)} bytes")
-                                        yield frame
+                                    elif current_event == "chunk":
+                                        # Decode and DIRECTLY PUSH audio chunk
+                                        payload = json.loads(data_buffer)
+                                        audio_b64 = payload.get("data")
 
-                                elif current_event == "end":
-                                    logger.info(f"🎵 VibeVoice stream COMPLETED - total chunks: {chunk_count}")
-                                    break
+                                        if audio_b64:
+                                            audio_bytes = base64.b64decode(audio_b64)
+                                            audio_np = np.frombuffer(
+                                                audio_bytes, dtype=np.int16
+                                            )
 
-                                elif current_event == "error":
-                                    error_data = json.loads(data_buffer)
-                                    logger.error(f"VibeVoice error: {error_data}")
-                                    yield ErrorFrame(
-                                        f"VibeVoice error: {error_data}"
-                                    )
-                                    break
+                                            # Create OutputAudioRawFrame for Pipecat
+                                            frame = OutputAudioRawFrame(
+                                                audio=audio_np.tobytes(),
+                                                sample_rate=actual_sample_rate,
+                                                num_channels=1,
+                                            )
+                                            chunk_count += 1
+                                            logger.info(f"🎵 Directly pushing TTS chunk #{chunk_count} at {time_module.time():.3f}: {len(audio_bytes)} bytes")
 
-                            except json.JSONDecodeError as e:
-                                logger.error(f"Failed to decode SSE data: {e}")
-                            except Exception as e:
-                                logger.error(f"Error processing SSE event: {e}")
-                                yield ErrorFrame(f"VibeVoice processing error: {e}")
+                                            # DIRECT PUSH - bypass generator buffering
+                                            await self.push_frame(frame)
 
-                        # Reset for next event
-                        current_event, data_buffer = None, ""
-                        continue
+                                    elif current_event == "end":
+                                        logger.info(f"🎵 VibeVoice stream COMPLETED - total chunks: {chunk_count}")
+                                        break
 
-                    # Parse SSE format
-                    if line.startswith("event:"):
-                        current_event = line[len("event: ") :].strip()
-                    elif line.startswith("data:"):
-                        data_buffer += line[len("data: ") :].strip()
+                                    elif current_event == "error":
+                                        error_data = json.loads(data_buffer)
+                                        logger.error(f"VibeVoice error: {error_data}")
+                                        await self.push_error(ErrorFrame(f"VibeVoice error: {error_data}"))
+                                        break
 
-        except Exception as e:
-            logger.exception(f"VibeVoice TTS error: {e}")
-            yield ErrorFrame(f"VibeVoice TTS failed: {str(e)}")
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"Failed to decode SSE data: {e}")
+                                except Exception as e:
+                                    logger.error(f"Error processing SSE event: {e}")
+                                    await self.push_error(ErrorFrame(f"VibeVoice processing error: {e}"))
+
+                            # Reset for next event
+                            current_event, data_buffer = None, ""
+                            continue
+
+                        # Parse SSE format
+                        if line.startswith("event:"):
+                            current_event = line[len("event: ") :].strip()
+                        elif line.startswith("data:"):
+                            data_buffer += line[len("data: ") :].strip()
+
+            except Exception as e:
+                logger.exception(f"VibeVoice TTS error: {e}")
+                await self.push_error(ErrorFrame(f"VibeVoice TTS failed: {str(e)}"))
+
+        # Start the streaming task in background
+        task = asyncio.create_task(stream_and_push())
+
+        # Wait for it to complete
+        await task
+
+        # Don't yield anything - we pushed directly
+        return
+        yield  # Make this a generator
 
 
 # Factory function for easy initialization

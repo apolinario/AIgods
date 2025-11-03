@@ -53,7 +53,8 @@ class RawAudioSerializer(FrameSerializer):
         """
         if isinstance(frame, OutputAudioRawFrame):
             # Return raw audio bytes prefixed with 'AUDIO:'
-            logger.info(f"🔊 Sending audio chunk to client: {len(frame.audio)} bytes at {frame.sample_rate}Hz")
+            import time
+            logger.info(f"🔊 SERIALIZER called at {time.time():.3f}: {len(frame.audio)} bytes at {frame.sample_rate}Hz")
             return b"AUDIO:" + frame.audio
 
         elif isinstance(frame, TranscriptionFrame):

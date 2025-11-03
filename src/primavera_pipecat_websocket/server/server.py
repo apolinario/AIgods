@@ -199,14 +199,20 @@ if __name__ == "__main__":
     import signal
     import os as os_module
 
-    # Force immediate exit on Ctrl+C
-    def force_exit(signum, frame):
-        logger.info("Ctrl+C pressed - forcing immediate shutdown")
-        os_module._exit(0)
-
-    signal.signal(signal.SIGINT, force_exit)
-
     logger.info(f"Starting server on {args.host}:{args.port}")
+
+    # Patch Pipecat's signal handler to force immediate exit
+    original_signal = signal.signal
+    def patched_signal(sig, handler):
+        if sig == signal.SIGINT:
+            # Override with our force exit handler
+            def force_exit(signum, frame):
+                logger.info("Ctrl+C pressed - forcing immediate shutdown")
+                os_module._exit(0)
+            return original_signal(sig, force_exit)
+        return original_signal(sig, handler)
+
+    signal.signal = patched_signal
 
     uvicorn.run(
         "server:app",

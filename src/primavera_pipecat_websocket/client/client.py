@@ -46,14 +46,27 @@ class AudioPlayer:
         self.playback_queue = deque()
         self.is_playing = False
         self._callback_data = b""
+        self._min_buffer_chunks = 3  # Minimum chunks in queue before starting playback
+        self._playback_started = False
 
     def _callback(self, in_data, frame_count, time_info, status):
         """PyAudio callback for continuous playback."""
         bytes_needed = frame_count * CHANNELS * BYTES_PER_SAMPLE
 
+        # Wait for minimum buffer before starting playback
+        if not self._playback_started:
+            if len(self.playback_queue) >= self._min_buffer_chunks:
+                self._playback_started = True
+                logger.info(f"🔊 Starting playback with {len(self.playback_queue)} chunks buffered")
+            else:
+                # Not ready yet - return silence
+                return (b'\x00' * bytes_needed, pyaudio.paContinue)
+
         # Get audio from queue
+        initial_buffer = len(self._callback_data)
         while len(self._callback_data) < bytes_needed and self.playback_queue:
-            self._callback_data += self.playback_queue.popleft()
+            chunk = self.playback_queue.popleft()
+            self._callback_data += chunk
 
         # Extract what we need
         if len(self._callback_data) >= bytes_needed:
@@ -61,8 +74,13 @@ class AudioPlayer:
             self._callback_data = self._callback_data[bytes_needed:]
         else:
             # Not enough data - pad with silence
-            output = self._callback_data + (b'\x00' * (bytes_needed - len(self._callback_data)))
+            silence_bytes = bytes_needed - len(self._callback_data)
+            output = self._callback_data + (b'\x00' * silence_bytes)
             self._callback_data = b""
+            # Reset playback started if we run out of data
+            if len(self.playback_queue) == 0:
+                self._playback_started = False
+                logger.warning(f"⚠️ UNDERRUN: Needed {bytes_needed} bytes, had {initial_buffer}, padded {silence_bytes} silence. Queue: {len(self.playback_queue)}")
 
         return (output, pyaudio.paContinue)
 
@@ -73,14 +91,15 @@ class AudioPlayer:
             channels=CHANNELS,
             rate=OUTPUT_SAMPLE_RATE,  # Use 24kHz for VibeVoice output
             output=True,
-            frames_per_buffer=1024,
+            frames_per_buffer=512,  # Smaller buffer for lower latency
             stream_callback=self._callback,  # Use callback mode for proper timing
         )
         self.stream.start_stream()
-        logger.info(f"Audio playback initialized at {OUTPUT_SAMPLE_RATE}Hz with callback")
+        logger.info(f"Audio playback initialized at {OUTPUT_SAMPLE_RATE}Hz with callback (512 frame buffer)")
 
     def add_audio(self, audio_data: bytes):
         """Add audio data to playback queue."""
+        logger.debug(f"📦 Queued chunk: {len(audio_data)} bytes, queue size now: {len(self.playback_queue)}")
         self.playback_queue.append(audio_data)
 
     async def play_loop(self):
