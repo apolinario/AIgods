@@ -198,16 +198,26 @@ async def run_bot(websocket_transport: FastAPIWebsocketTransport):
         websocket_transport: WebSocket transport for client communication
     """
 
-    # Load personality configuration
-    config = ConfigLoader(config_dir=os.path.join(os.path.dirname(__file__), '../../config'))
-    logger.info(f"Loaded personality: {config.personality['name']}")
+    # Change to project root for cache and config access
+    project_root = os.path.join(os.path.dirname(__file__), '../..')
+    original_cwd = os.getcwd()
+    os.chdir(project_root)
+    logger.info(f"Changed working directory to: {os.getcwd()}")
 
-    # Initialize Gemini conversation manager with cache
-    conversation_manager = GeminiConversationManager(
-        api_key=os.getenv("GOOGLE_API_KEY"),
-        personality_config=config.personality
-    )
-    logger.info(f"Gemini cache initialized: {conversation_manager.cache_name}")
+    try:
+        # Load personality configuration
+        config = ConfigLoader(config_dir='config')
+        logger.info(f"Loaded personality: {config.personality['name']}")
+
+        # Initialize Gemini conversation manager with cache
+        conversation_manager = GeminiConversationManager(
+            api_key=os.getenv("GOOGLE_API_KEY"),
+            personality_config=config.personality
+        )
+        logger.info(f"Gemini cache initialized: {conversation_manager.cache_name}")
+    finally:
+        # Restore original working directory
+        os.chdir(original_cwd)
 
     # Initialize local Whisper STT
     whisper_model = os.getenv("WHISPER_MODEL", "base")  # Options: tiny, base, small, medium, large
